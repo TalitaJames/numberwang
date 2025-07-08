@@ -32,6 +32,51 @@ def random_wangweighted_number(words=True):
 
     return str(value)
 
+def get_random_numberwang_number_image(
+    numberColours = ["#B30808", "#294FCA", #the colours the numbers may be
+                     "#208A12", "#F1AD2E",],
+    font_path = "assets/Bauhaus93Regular.ttf", # bauhaus is std for numberwang
+
+    words = True, # if the board is allowed to contain words of numbers (ie "two")
+    fontSize = 125, # the main font size
+    size_stdDev = 0.5, # standard deviation for the font size
+    rot_stdDev = 15, # standard deviation for the rotation
+):
+    oversample = 5 # how big to draw the numbers before scaling down
+
+    element = random_wangweighted_number(words)
+
+    # get random elements (size, rotation, colour)
+    scale = max(np.random.normal(1, 0.4), size_stdDev) # mean = 1, std dev = 0.4
+    size = int(scale*fontSize*oversample)
+    font = ImageFont.truetype(font_path, size)
+    rotation = np.random.normal(0, rot_stdDev)  % 360
+    colour = random.choice(numberColours)
+
+    bbox = font.getbbox(element)
+    element_w = bbox[2] - bbox[0]
+    element_h = bbox[3] - bbox[1]
+
+    # make a png with just the element
+    element_img = Image.new("RGBA", (element_w, element_h), (0, 0, 0, 0))
+    element_draw = ImageDraw.Draw(element_img)
+    element_draw.text((0, 0), element, font=font, fill=colour, anchor="lt")
+
+
+    # make sure the area isn't too big
+    element_area = (element_w * element_h)/oversample
+    # if element_area > max_area_ratio * canvas_area:
+    #     shrink_factor = 3
+    #     element_img = element_img.resize((int(element_w//shrink_factor), int(element_h//shrink_factor)),
+    #                                      resample=Image.Resampling.LANCZOS)
+
+    rotated_img = element_img.rotate(rotation, expand=True, resample=Image.Resampling.BICUBIC)
+    element_w = int(rotated_img.width / oversample)
+    element_h = int(rotated_img.height / oversample)
+    downscaled_img = rotated_img.resize((element_w, element_h), resample=Image.Resampling.LANCZOS)
+
+    return downscaled_img
+
 
 def make_canvas_pillow(
     canvasSize = (1920, 1080), # (width, height) size of the image
@@ -51,51 +96,25 @@ def make_canvas_pillow(
     rot_stdDev = 15, # standard deviation for the rotation
 ):
     numbers = Image.new("RGBA", (canvasSize[0] - 2*margin, canvasSize[1] - 2*margin), (0,0,0,0))
-    max_area_ratio = 0.10 # each number should take this much % of canvas max
-    canvas_area = (canvasSize[0] - 2*margin)*(canvasSize[1] - 2*margin)
     failed = 0 #number of elements skipped due to not fitting
 
+    max_area_ratio = 0.10 # each number should take this much % of canvas max
+    canvas_area = (canvasSize[0] - 2*margin)*(canvasSize[1] - 2*margin)
+
     for _ in range(numElements):
-        element = random_wangweighted_number(words)
-
-        # scale, rotate and place element on blank minimum sized png
-        scale = max(np.random.normal(1, 0.4), size_stdDev) # mean = 1, std dev = 0.4
-        size = int(scale*fontSize)
-        font = ImageFont.truetype(font_path, size)
-
-        rotation = np.random.normal(0, rot_stdDev)  % 360
-        colour = random.choice(numberColours)
-
-        bbox = font.getbbox(element)
-        element_w = bbox[2] - bbox[0]
-        element_h = bbox[3] - bbox[1]
-
-        # make a png with just the element
-        element_img = Image.new("RGBA", (element_w, element_h), (0, 0, 0, 0))
-        element_draw = ImageDraw.Draw(element_img)
-        element_draw.text((0, 0), element, font=font, fill=colour, anchor="lt")
-
-
-        # make sure the area isn't too big
-        element_area = element_w * element_h
-        if element_area > max_area_ratio * canvas_area:
-            shrink_factor = 3
-            element_img = element_img.resize((int(element_w//shrink_factor), int(element_h//shrink_factor)), resample=Image.Resampling.NEAREST)
-
-        rotated_img = element_img.rotate(rotation, expand=True)
-        element_w, element_h = rotated_img.size
-
+        element_img = get_random_numberwang_number_image(numberColours, font_path,
+                                                         words, fontSize, size_stdDev, rot_stdDev)
 
         # find a non occupied spot for the element
         spotFound = False
         for _ in range(100):
-            x = random.randint(0, canvasSize[0] - 2*margin - element_w)
-            y = random.randint(0, canvasSize[1] - 2*margin - element_h)
+            x = random.randint(0, canvasSize[0] - 2*margin - element_img.width)
+            y = random.randint(0, canvasSize[1] - 2*margin - element_img.height)
 
             if overlap:
                 break # overlap doesn't care about a "safe place"
 
-            potentialPlacment = numbers.crop((x, y, x + element_w, y + element_h)).getchannel("A")
+            potentialPlacment = numbers.crop((x, y, x + element_img.width, y + element_img.height)).getchannel("A")
 
             # an empty bounding box means space is clear
             if potentialPlacment.getbbox() is None:
@@ -103,7 +122,7 @@ def make_canvas_pillow(
                 break
 
         if spotFound or overlap:
-            numbers.paste(rotated_img, (x, y), rotated_img)
+            numbers.paste(element_img, (x, y), element_img)
         else:
             failed += 1
 
